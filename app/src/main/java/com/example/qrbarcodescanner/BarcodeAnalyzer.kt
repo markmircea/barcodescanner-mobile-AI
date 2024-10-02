@@ -14,7 +14,7 @@ import kotlinx.coroutines.launch
 
 class BarcodeAnalyzer(
     private val coroutineScope: CoroutineScope,
-    private val onBarcodeDetected: (String, String, String) -> Unit
+    private val onBarcodeDetected: (String, String, String, Boolean) -> Unit
 ) : ImageAnalysis.Analyzer {
 
     private val scanner = BarcodeScanning.getClient(
@@ -62,7 +62,9 @@ class BarcodeAnalyzer(
                             Log.d("BarcodeAnalyzer", "Barcode detected: $barcodeValue, Type: $barcodeType")
                             coroutineScope.launch {
                                 val productInfo = productLookupService.lookupProduct(barcodeValue, barcodeType)
-                                onBarcodeDetected(barcodeValue, barcodeType, productInfo)
+                                val hasProductInfo = productInfo.isNotBlank() && productInfo != "Product not found"
+                                val aiInput = if (hasProductInfo) productInfo else barcodeValue
+                                onBarcodeDetected(barcodeValue, barcodeType, aiInput, hasProductInfo)
                             }
                         }
                     }

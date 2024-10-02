@@ -13,6 +13,7 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val barcodeRepository: BarcodeRepository
@@ -22,8 +23,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _showMenu = MutableStateFlow(false)
     val showMenu: StateFlow<Boolean> = _showMenu.asStateFlow()
 
-    private val _scannedBarcode = MutableStateFlow<Triple<String, String, String>?>(null)
-    val scannedBarcode: StateFlow<Triple<String, String, String>?> = _scannedBarcode.asStateFlow()
+    private val _scannedBarcode = MutableStateFlow<Quadruple<String, String, String, Boolean>?>(null)
+    val scannedBarcode: StateFlow<Quadruple<String, String, String, Boolean>?> = _scannedBarcode.asStateFlow()
 
     private val _barcodeDescription = MutableStateFlow<String?>(null)
     val barcodeDescription: StateFlow<String?> = _barcodeDescription.asStateFlow()
@@ -46,6 +47,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val addScansToHistory: StateFlow<Boolean>
 
     private val productLookupService = ProductLookupService()
+    private var lastApiCallTime = 0L
+    private val apiCooldownPeriod = 60_000L // 1 minute in milliseconds
 
     init {
         val barcodeDao = AppDatabase.getDatabase(application).barcodeDao()
@@ -84,20 +87,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         Log.d("MainViewModel", "Zoom level updated: $level")
     }
 
-    fun onBarcodeDetected(barcode: String, barcodeType: String, productInfo: String) {
-        Log.d("MainViewModel", "Barcode detected: $barcode, Type: $barcodeType, Product: $productInfo")
-        _scannedBarcode.value = Triple(barcode, barcodeType, productInfo)
-        _barcodeDescription.value = null // Clear previous description
+    fun onBarcodeDetected(barcode: String, barcodeType: String, aiInput: String, hasProductInfo: Boolean) {
+        Log.d("MainViewModel", "Barcode detected: $barcode, Type: $barcodeType, AI Input: $aiInput, Has Product Info: $hasProductInfo")
+        _scannedBarcode.value = Quadruple(barcode, barcodeType, aiInput, hasProductInfo)
+        
+        val currentTime = System.currentTimeMillis()
+        val timeSinceLastCall = currentTime - lastApiCallTime
 
+        if (timeSinceLastCall < apiCooldownPeriod) {
+            val remainingCooldown = (apiCooldownPeriod - timeSinceLastCall) / 1000
+            _barcodeDescription.value = "AI description will be available in $remainingCooldown seconds. Please wait."
+            viewModelScope.launch {
+                delay(apiCooldownPeriod - timeSinceLastCall)
+                fetchDescription(aiInput)
+            }
+        } else {
+            fetchDescription(aiInput)
+        }
+    }
+
+    private fun fetchDescription(aiInput: String) {
+        _barcodeDescription.value = "Fetching description..."
         viewModelScope.launch {
             try {
-                Log.d("MainViewModel", "Fetching description for barcode: $barcode")
-                val description = OpenAIService.getDescriptionForBarcode(barcode)
+                Log.d("MainViewModel", "Fetching description for AI input: $aiInput")
+                val description = OpenAIService.getDescriptionForBarcode(aiInput)
                 Log.d("MainViewModel", "Description fetched: $description")
                 _barcodeDescription.value = description
+                lastApiCallTime = System.currentTimeMillis()
                 if (addScansToHistory.value) {
                     Log.d("MainViewModel", "Saving barcode to history")
-                    saveToHistory(barcode, barcodeType, description, productInfo)
+                    saveToHistory(_scannedBarcode.value!!.first, _scannedBarcode.value!!.second, description, aiInput)
                 }
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Error fetching description", e)
@@ -212,7 +232,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 val barcodeType = getBarcodeTypeString(barcode.format)
                                 viewModelScope.launch {
                                     val productInfo = productLookupService.lookupProduct(barcodeValue, barcodeType)
-                                    onBarcodeDetected(barcodeValue, barcodeType, productInfo)
+                                    val hasProductInfo = productInfo.isNotBlank() && productInfo != "Product not found"
+                                    val aiInput = if (hasProductInfo) productInfo else barcodeValue
+                                    onBarcodeDetected(barcodeValue, barcodeType, aiInput, hasProductInfo)
                                 }
                             }
                         } else {
@@ -252,3 +274,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 }
+
+data class Quadruple<out A, out B, out C, out D>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D
+)

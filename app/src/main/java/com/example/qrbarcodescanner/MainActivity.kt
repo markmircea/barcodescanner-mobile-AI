@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
@@ -15,6 +16,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -163,9 +166,9 @@ fun MainScreen(
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues)) {
             CameraPreview(
-                onBarcodeDetected = { barcode, barcodeType, productInfo ->
-                    Log.d("MainScreen", "Barcode detected: $barcode, Type: $barcodeType, Product: $productInfo")
-                    viewModel.onBarcodeDetected(barcode, barcodeType, productInfo)
+                onBarcodeDetected = { barcode, barcodeType, aiInput, hasProductInfo ->
+                    Log.d("MainScreen", "Barcode detected: $barcode, Type: $barcodeType, AI Input: $aiInput, Has Product Info: $hasProductInfo")
+                    viewModel.onBarcodeDetected(barcode, barcodeType, aiInput, hasProductInfo)
                 },
                 isFrontCamera = isFrontCamera,
                 zoomLevel = zoomLevel
@@ -181,10 +184,12 @@ fun MainScreen(
                     .fillMaxWidth(0.8f)
             )
 
-            scannedBarcode?.let { (content, type, productInfo) ->
+            scannedBarcode?.let { (content, type, aiInput, hasProductInfo) ->
                 Column(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
+                        .padding(16.dp)
+                        .background(Color.Black.copy(alpha = 0.6f))
                         .padding(16.dp)
                 ) {
                     if (content.startsWith("http://") || content.startsWith("https://")) {
@@ -192,7 +197,7 @@ fun MainScreen(
                             text = AnnotatedString(
                                 text = "Scanned: $content",
                                 spanStyle = SpanStyle(
-                                    color = MaterialTheme.colorScheme.primary,
+                                    color = Color.White,
                                     textDecoration = TextDecoration.Underline
                                 )
                             ),
@@ -205,23 +210,39 @@ fun MainScreen(
                     } else {
                         Text(
                             text = "Scanned: $content",
-                            style = MaterialTheme.typography.titleMedium
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White
                         )
                     }
                     Text(
                         text = "Type: $type",
-                        style = MaterialTheme.typography.bodyMedium
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Product: $productInfo",
-                        style = MaterialTheme.typography.bodyMedium
+                        text = if (hasProductInfo) "Product Info: $aiInput" else "Barcode: $aiInput",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "Description: ${barcodeDescription ?: "Loading..."}",
-                        style = MaterialTheme.typography.bodyMedium
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
                     )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = {
+                            val searchQuery = Uri.encode(content)
+                            val searchUrl = "https://www.google.com/search?q=$searchQuery"
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(searchUrl))
+                            startActivity(context, intent, null)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Search Online")
+                    }
                 }
             }
         }
