@@ -9,5 +9,6 @@ data class BarcodeEntity(
     val content: String,
     val type: String,
     val description: String,
+    val productInfo: String,
     val timestamp: Long
 )

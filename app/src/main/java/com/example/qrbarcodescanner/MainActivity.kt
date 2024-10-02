@@ -1,5 +1,6 @@
 package com.example.qrbarcodescanner
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -7,13 +8,19 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat.startActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -115,6 +122,7 @@ fun MainScreen(
     val isFlashOn by viewModel.isFlashOn.collectAsState()
     val isFrontCamera by viewModel.isFrontCamera.collectAsState()
     val zoomLevel by viewModel.zoomLevel.collectAsState()
+    val context = LocalContext.current
 
     LaunchedEffect(scannedBarcode) {
         Log.d("MainScreen", "Scanned barcode updated: $scannedBarcode")
@@ -155,9 +163,9 @@ fun MainScreen(
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues)) {
             CameraPreview(
-                onBarcodeDetected = { barcode, barcodeType ->
-                    Log.d("MainScreen", "Barcode detected: $barcode, Type: $barcodeType")
-                    viewModel.onBarcodeDetected(barcode, barcodeType)
+                onBarcodeDetected = { barcode, barcodeType, productInfo ->
+                    Log.d("MainScreen", "Barcode detected: $barcode, Type: $barcodeType, Product: $productInfo")
+                    viewModel.onBarcodeDetected(barcode, barcodeType, productInfo)
                 },
                 isFrontCamera = isFrontCamera,
                 zoomLevel = zoomLevel
@@ -173,18 +181,40 @@ fun MainScreen(
                     .fillMaxWidth(0.8f)
             )
 
-            scannedBarcode?.let { (content, type) ->
+            scannedBarcode?.let { (content, type, productInfo) ->
                 Column(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(16.dp)
                 ) {
-                    Text(
-                        text = "Scanned: $content",
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                    if (content.startsWith("http://") || content.startsWith("https://")) {
+                        ClickableText(
+                            text = AnnotatedString(
+                                text = "Scanned: $content",
+                                spanStyle = SpanStyle(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    textDecoration = TextDecoration.Underline
+                                )
+                            ),
+                            style = MaterialTheme.typography.titleMedium,
+                            onClick = {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(content))
+                                startActivity(context, intent, null)
+                            }
+                        )
+                    } else {
+                        Text(
+                            text = "Scanned: $content",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
                     Text(
                         text = "Type: $type",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Product: $productInfo",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(modifier = Modifier.height(8.dp))

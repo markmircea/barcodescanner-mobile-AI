@@ -25,4 +25,12 @@ class BarcodeRepository(private val barcodeDao: BarcodeDao) {
     suspend fun getBarcodeById(id: Int): BarcodeEntity? {
         return barcodeDao.getBarcodeById(id)
     }
+
+    suspend fun getBarcodeByContent(content: String): BarcodeEntity? {
+        return barcodeDao.getBarcodeByContent(content)
+    }
+
+    suspend fun updateBarcode(barcode: BarcodeEntity) {
+        barcodeDao.updateBarcode(barcode)
+    }
 }

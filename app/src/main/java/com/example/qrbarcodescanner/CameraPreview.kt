@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun CameraPreview(
-    onBarcodeDetected: (String, String) -> Unit,
+    onBarcodeDetected: (String, String, String) -> Unit,
     isFrontCamera: Boolean,
     zoomLevel: Float
 ) {
@@ -49,9 +49,9 @@ fun CameraPreview(
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build()
                         .also {
-                            it.setAnalyzer(cameraExecutor, BarcodeAnalyzer { barcode, barcodeType ->
-                                Log.d("CameraPreview", "Barcode detected: $barcode, Type: $barcodeType")
-                                onBarcodeDetected(barcode, barcodeType)
+                            it.setAnalyzer(cameraExecutor, BarcodeAnalyzer(coroutineScope) { barcode, barcodeType, productInfo ->
+                                Log.d("CameraPreview", "Barcode detected: $barcode, Type: $barcodeType, Product: $productInfo")
+                                onBarcodeDetected(barcode, barcodeType, productInfo)
                             })
                         }
 

@@ -22,8 +22,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _showMenu = MutableStateFlow(false)
     val showMenu: StateFlow<Boolean> = _showMenu.asStateFlow()
 
-    private val _scannedBarcode = MutableStateFlow<Pair<String, String>?>(null)
-    val scannedBarcode: StateFlow<Pair<String, String>?> = _scannedBarcode.asStateFlow()
+    private val _scannedBarcode = MutableStateFlow<Triple<String, String, String>?>(null)
+    val scannedBarcode: StateFlow<Triple<String, String, String>?> = _scannedBarcode.asStateFlow()
 
     private val _barcodeDescription = MutableStateFlow<String?>(null)
     val barcodeDescription: StateFlow<String?> = _barcodeDescription.asStateFlow()
@@ -45,8 +45,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val useInAppBrowser: StateFlow<Boolean>
     val addScansToHistory: StateFlow<Boolean>
 
-    private var lastApiCallTime = 0L
-    private val apiCallCooldown = 60_000L // 1 minute in milliseconds
+    private val productLookupService = ProductLookupService()
 
     init {
         val barcodeDao = AppDatabase.getDatabase(application).barcodeDao()
@@ -85,16 +84,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         Log.d("MainViewModel", "Zoom level updated: $level")
     }
 
-    fun onBarcodeDetected(barcode: String, barcodeType: String) {
-        Log.d("MainViewModel", "Barcode detected: $barcode, Type: $barcodeType")
-        _scannedBarcode.value = Pair(barcode, barcodeType)
+    fun onBarcodeDetected(barcode: String, barcodeType: String, productInfo: String) {
+        Log.d("MainViewModel", "Barcode detected: $barcode, Type: $barcodeType, Product: $productInfo")
+        _scannedBarcode.value = Triple(barcode, barcodeType, productInfo)
         _barcodeDescription.value = null // Clear previous description
-
-        val currentTime = System.currentTimeMillis()
-        if (currentTime - lastApiCallTime < apiCallCooldown) {
-            _barcodeDescription.value = "Rate limit: Only one description can be analyzed per minute."
-            return
-        }
 
         viewModelScope.launch {
             try {
@@ -102,10 +95,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val description = OpenAIService.getDescriptionForBarcode(barcode)
                 Log.d("MainViewModel", "Description fetched: $description")
                 _barcodeDescription.value = description
-                lastApiCallTime = System.currentTimeMillis()
                 if (addScansToHistory.value) {
                     Log.d("MainViewModel", "Saving barcode to history")
-                    saveToHistory(barcode, barcodeType, description)
+                    saveToHistory(barcode, barcodeType, description, productInfo)
                 }
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Error fetching description", e)
@@ -114,15 +106,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun saveToHistory(barcode: String, barcodeType: String, description: String) {
+    private suspend fun saveToHistory(barcode: String, barcodeType: String, description: String, productInfo: String) {
         val barcodeEntity = BarcodeEntity(
             content = barcode,
             type = barcodeType,
             description = description,
+            productInfo = productInfo,
             timestamp = System.currentTimeMillis()
         )
-        barcodeRepository.insertBarcode(barcodeEntity)
-        Log.d("MainViewModel", "Barcode saved to history: $barcode, Type: $barcodeType")
+        
+        if (keepDuplicates.value) {
+            barcodeRepository.insertBarcode(barcodeEntity)
+            Log.d("MainViewModel", "Barcode saved to history: $barcode, Type: $barcodeType")
+        } else {
+            val existingBarcode = barcodeRepository.getBarcodeByContent(barcode)
+            if (existingBarcode == null) {
+                barcodeRepository.insertBarcode(barcodeEntity)
+                Log.d("MainViewModel", "New barcode saved to history: $barcode, Type: $barcodeType")
+            } else {
+                barcodeRepository.updateBarcode(barcodeEntity.copy(id = existingBarcode.id))
+                Log.d("MainViewModel", "Existing barcode updated in history: $barcode, Type: $barcodeType")
+            }
+        }
     }
 
     fun deleteBarcode(barcode: BarcodeEntity) {
@@ -203,7 +208,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         if (barcodes.isNotEmpty()) {
                             val barcode = barcodes[0]
                             Log.d("MainViewModel", "Barcode found in image: ${barcode.rawValue}")
-                            barcode.rawValue?.let { onBarcodeDetected(it, getBarcodeTypeString(barcode.format)) }
+                            barcode.rawValue?.let { barcodeValue ->
+                                val barcodeType = getBarcodeTypeString(barcode.format)
+                                viewModelScope.launch {
+                                    val productInfo = productLookupService.lookupProduct(barcodeValue, barcodeType)
+                                    onBarcodeDetected(barcodeValue, barcodeType, productInfo)
+                                }
+                            }
                         } else {
                             Log.d("MainViewModel", "No barcode found in image")
                             _barcodeDescription.value = "No barcode found in the image"

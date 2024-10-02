@@ -8,17 +8,46 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
-class BarcodeAnalyzer(private val onBarcodeDetected: (String, String) -> Unit) : ImageAnalysis.Analyzer {
+class BarcodeAnalyzer(
+    private val coroutineScope: CoroutineScope,
+    private val onBarcodeDetected: (String, String, String) -> Unit
+) : ImageAnalysis.Analyzer {
 
     private val scanner = BarcodeScanning.getClient(
         BarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_QR_CODE, Barcode.FORMAT_ALL_FORMATS)
+            .setBarcodeFormats(
+                Barcode.FORMAT_QR_CODE,
+                Barcode.FORMAT_UPC_A,
+                Barcode.FORMAT_UPC_E,
+                Barcode.FORMAT_EAN_13,
+                Barcode.FORMAT_EAN_8,
+                Barcode.FORMAT_CODE_39,
+                Barcode.FORMAT_CODE_93,
+                Barcode.FORMAT_CODE_128,
+                Barcode.FORMAT_ITF,
+                Barcode.FORMAT_DATA_MATRIX,
+                Barcode.FORMAT_PDF417,
+                Barcode.FORMAT_AZTEC
+            )
             .build()
     )
 
+    private val productLookupService = ProductLookupService()
+    private var lastProcessingTimestamp = 0L
+    private val processingInterval = 1000L // 1 second interval
+
     @SuppressLint("UnsafeOptInUsageError")
     override fun analyze(imageProxy: ImageProxy) {
+        val currentTimestamp = System.currentTimeMillis()
+        if (currentTimestamp - lastProcessingTimestamp < processingInterval) {
+            imageProxy.close()
+            return
+        }
+
         val mediaImage = imageProxy.image
         if (mediaImage != null) {
             val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
@@ -28,12 +57,16 @@ class BarcodeAnalyzer(private val onBarcodeDetected: (String, String) -> Unit) :
                 .addOnSuccessListener { barcodes ->
                     Log.d("BarcodeAnalyzer", "Barcodes detected: ${barcodes.size}")
                     for (barcode in barcodes) {
-                        barcode.rawValue?.let { 
+                        barcode.rawValue?.let { barcodeValue ->
                             val barcodeType = getBarcodeTypeString(barcode.format)
-                            Log.d("BarcodeAnalyzer", "Barcode detected: $it, Type: $barcodeType")
-                            onBarcodeDetected(it, barcodeType)
+                            Log.d("BarcodeAnalyzer", "Barcode detected: $barcodeValue, Type: $barcodeType")
+                            coroutineScope.launch {
+                                val productInfo = productLookupService.lookupProduct(barcodeValue, barcodeType)
+                                onBarcodeDetected(barcodeValue, barcodeType, productInfo)
+                            }
                         }
                     }
+                    lastProcessingTimestamp = currentTimestamp
                 }
                 .addOnFailureListener { e ->
                     Log.e("BarcodeAnalyzer", "Error processing image", e)
@@ -50,7 +83,6 @@ class BarcodeAnalyzer(private val onBarcodeDetected: (String, String) -> Unit) :
     private fun getBarcodeTypeString(format: Int): String {
         return when (format) {
             Barcode.FORMAT_UNKNOWN -> "Unknown"
-            Barcode.FORMAT_ALL_FORMATS -> "All Formats"
             Barcode.FORMAT_CODE_128 -> "Code 128"
             Barcode.FORMAT_CODE_39 -> "Code 39"
             Barcode.FORMAT_CODE_93 -> "Code 93"

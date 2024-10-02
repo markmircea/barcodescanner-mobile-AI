@@ -111,7 +111,12 @@ fun BarcodeHistoryItem(
             if (expanded) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = barcode.description,
+                    text = "Product: ${barcode.productInfo}",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Description: ${barcode.description}",
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
